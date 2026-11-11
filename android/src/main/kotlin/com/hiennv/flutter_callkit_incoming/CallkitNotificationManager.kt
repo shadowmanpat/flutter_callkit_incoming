@@ -31,6 +31,7 @@ import android.text.TextUtils
 import android.text.format.DateFormat
 import android.view.View
 import android.widget.RemoteViews
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -204,9 +205,11 @@ class CallkitNotificationManager(
         )
         notificationBuilder?.setOnlyAlertOnce(true)
         notificationBuilder?.setSound(null)
-        notificationBuilder?.setFullScreenIntent(
-            getActivityPendingIntent(notificationId, data), true
-        )
+        if (canUseFullScreenIntent()) {
+            notificationBuilder?.setFullScreenIntent(
+                getActivityPendingIntent(notificationId, data), true
+            )
+        }
         notificationBuilder?.setContentIntent(getActivityPendingIntent(notificationId, data))
         notificationBuilder?.setDeleteIntent(getTimeOutPendingIntent(notificationId, data))
         val typeCall = data.getInt(CallkitConstants.EXTRA_CALLKIT_TYPE, -1)
@@ -1077,21 +1080,80 @@ class CallkitNotificationManager(
     }
 
     fun requestFullIntentPermission(activity: Activity?) {
-        val canUseFullScreenIntent = getNotificationManager().canUseFullScreenIntent()
-        if (!canUseFullScreenIntent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
-                data = Uri.fromParts("package", activity?.packageName, null)
-            }
-            activity?.startActivity(intent)
+        if (activity == null) return
+        val granted = try {
+            canUseFullScreenIntent()
+        } catch (_: Exception) {
+            false
+        }
+        val fullScreen = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+            data = Uri.fromParts("package", activity.packageName, null)
+        }
+        val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", activity.packageName, null)
+        }
+        val fullScreenResolves = resolves(activity, fullScreen)
+        val detailsResolves = resolves(activity, details)
+        val first = FullScreenIntentPolicy.choose(
+            Build.VERSION.SDK_INT,
+            granted,
+            fullScreenResolves,
+            false,
+            detailsResolves,
+            false,
+        )
+        val fullScreenFailed = first == FullScreenIntentPolicy.fullScreenSetting && !startSettings(activity, fullScreen)
+        val second = FullScreenIntentPolicy.choose(
+            Build.VERSION.SDK_INT,
+            granted,
+            fullScreenResolves,
+            fullScreenFailed,
+            detailsResolves,
+            false,
+        )
+        val detailsFailed = second == FullScreenIntentPolicy.appDetails && !startSettings(activity, details)
+        when (FullScreenIntentPolicy.choose(
+            Build.VERSION.SDK_INT,
+            granted,
+            fullScreenResolves,
+            fullScreenFailed,
+            detailsResolves,
+            detailsFailed,
+        )) {
+            FullScreenIntentPolicy.appDetails -> Toast.makeText(
+                activity,
+                "Please enable full screen notifications in the app settings.",
+                Toast.LENGTH_LONG
+            ).show()
+            FullScreenIntentPolicy.explainOnly -> Toast.makeText(
+                activity,
+                "Unable to open settings. Please enable permissions manually.",
+                Toast.LENGTH_LONG
+            ).show()
+            else -> Unit
+        }
+    }
+
+    private fun resolves(activity: Activity, intent: Intent): Boolean {
+        return try {
+            intent.resolveActivity(activity.packageManager) != null
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun startSettings(activity: Activity, intent: Intent): Boolean {
+        return try {
+            activity.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
     fun canUseFullScreenIntent(): Boolean {
-        val canUseFullScreenIntent = getNotificationManager().canUseFullScreenIntent()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            return canUseFullScreenIntent
-        }
-        return true
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        return getNotificationManager().canUseFullScreenIntent()
     }
 
 
