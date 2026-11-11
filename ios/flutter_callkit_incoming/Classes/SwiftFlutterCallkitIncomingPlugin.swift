@@ -654,10 +654,18 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             return
         }
         self.configureAudioSession()
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(1200)) {
-            self.configureAudioSession()
+        let mediaProvider = (call.data.extra["provider"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        if mediaProvider != "vidsol" && mediaProvider != "vidsolconnect" && mediaProvider != "livekit" {
+            // Agora and an invitation with no provider keep the previous
+            // delayed configuration. A Vidsol answer does not rewrite the
+            // session again, because that rewrite does not restart an audio
+            // unit that has already started.
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(1200)) {
+                self.configureAudioSession()
+            }
         }
-
 
         call.hasConnectDidChange = { [weak self] in
             self?.sharedProvider?.reportOutgoingCall(with: call.uuid, connectedAt: call.connectedData)
