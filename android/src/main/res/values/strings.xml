@@ -3,6 +3,13 @@
 
     <string name="text_accept">Accept</string>
     <string name="text_decline">Decline</string>
+    <string name="text_incoming_video">Incoming video call</string>
+    <string name="text_caller_role">Caller</string>
+    <string name="text_service_label">Service</string>
+    <string name="text_call_rate">Call rate</string>
+    <string name="text_brand">Rent a Cyber Friend</string>
+    <string name="text_brand_rent">Rent a Cyber\u0020</string>
+    <string name="text_brand_friend">Friend</string>
     <string name="text_missed_call">Missed call</string>
     <string name="text_call_back">Call back</string>
     <string name="text_calling">Calling…</string>
