@@ -235,23 +235,17 @@ class CallkitIncomingActivity : Activity() {
 
         var avatarUrl = data?.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
         ivAvatar.visibility = View.VISIBLE
+        tvAvatarMark.visibility = View.GONE
         if (avatarUrl.isNullOrEmpty()) {
-            if (identityFallback) {
-                ivAvatar.setImageResource(R.drawable.racf_logo_face)
-                tvAvatarMark.visibility = View.GONE
-            } else {
-                ivAvatar.setImageResource(R.drawable.bg_avatar_fill)
-                tvAvatarMark.visibility = View.VISIBLE
-            }
+            ivAvatar.setImageResource(R.drawable.racf_logo_face)
         } else {
-            tvAvatarMark.visibility = View.GONE
-            ivAvatar.setImageResource(R.drawable.ic_default_avatar)
+            ivAvatar.setImageResource(R.drawable.racf_logo_face)
             if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true)) {
                 avatarUrl = String.format("file:///android_asset/flutter_assets/%s", avatarUrl)
             }
             val headers =
                 data?.getSerializable(CallkitConstants.EXTRA_CALLKIT_HEADERS) as HashMap<String, Any?>
-            ImageLoaderProvider.loadImage(this@CallkitIncomingActivity, avatarUrl, headers, R.drawable.ic_default_avatar, ivAvatar)
+            ImageLoaderProvider.loadImage(this@CallkitIncomingActivity, avatarUrl, headers, R.drawable.racf_logo_face, ivAvatar)
         }
 
         val callType = data?.getInt(CallkitConstants.EXTRA_CALLKIT_TYPE, 0) ?: 0

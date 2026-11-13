@@ -1025,7 +1025,8 @@ class CallkitNotificationManager(
             val stream = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
             val value = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
             val previous = intent.getIntExtra("android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1)
-            if (stream == AudioManager.STREAM_RING && value >= 0 && previous >= 0 && value < previous) {
+            val alertStream = stream == AudioManager.STREAM_NOTIFICATION || stream == AudioManager.STREAM_RING
+            if (alertStream && value >= 0 && previous >= 0 && value < previous) {
                 callkitSoundPlayerManager.stop()
             }
         }

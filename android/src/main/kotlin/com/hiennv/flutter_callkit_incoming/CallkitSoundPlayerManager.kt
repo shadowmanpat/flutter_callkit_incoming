@@ -35,6 +35,10 @@ class CallkitSoundPlayerManager(private val context: Context) {
     private var audioManager: AudioManager? = null
 
     private var ringtone: Ringtone? = null
+    private var alertPlaysRemaining = 0
+    private var alertData: Bundle? = null
+    private val alertHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var alertRepeat: Runnable? = null
 
     // Start Signify modification
     var isPlaying: Boolean = false
@@ -58,12 +62,14 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
 
     fun play(data: Bundle) {
-        if (ringtone?.isPlaying == true) {
+        if (ringtone?.isPlaying == true || alertPlaysRemaining > 0) {
             return
         }
         this.isPlaying = true
+        this.alertData = data
+        this.alertPlaysRemaining = 2
         this.prepare()
-        this.playSound(data)
+        this.startAlert()
         this.playVibrator()
 
         if (!screenReceiverRegistered) {
@@ -75,6 +81,9 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
     fun stop() {
         this.isPlaying = false
+        this.alertPlaysRemaining = 0
+        this.alertRepeat?.let { alertHandler.removeCallbacks(it) }
+        this.alertRepeat = null
 
         ringtone?.stop()
         vibrator?.cancel()
@@ -109,7 +118,7 @@ class CallkitSoundPlayerManager(private val context: Context) {
         audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         if (!vibrationAllowed()) return
 
-        val pattern = longArrayOf(0L, 1000L, 1000L)
+        val pattern = longArrayOf(0L, 180L, 120L, 180L)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val audioAttrs = AudioAttributes.Builder()
@@ -120,25 +129,52 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator?.vibrate(
-                    VibrationEffect.createWaveform(pattern, 0),
+                    VibrationEffect.createWaveform(pattern, -1),
                     audioAttrs
                 )
             } else {
                 @Suppress("DEPRECATION")
-                vibrator?.vibrate(pattern, 0, audioAttrs)
+                vibrator?.vibrate(pattern, -1, audioAttrs)
             }
         } else {
             @Suppress("DEPRECATION")
-            vibrator?.vibrate(pattern, 0)
+                vibrator?.vibrate(pattern, -1)
         }
     }
 
-    private fun ringAudible(): Boolean {
+    private fun notificationAudible(): Boolean {
         val manager = audioManager ?: context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audioManager = manager
         if (manager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return false
-        if (manager.getStreamVolume(AudioManager.STREAM_RING) <= 0) return false
+        if (manager.getStreamVolume(AudioManager.STREAM_NOTIFICATION) <= 0) return false
         return !alertsSilenced()
+    }
+
+    private fun startAlert() {
+        if (alertPlaysRemaining <= 0) return
+        if (!notificationAudible()) {
+            alertPlaysRemaining = 0
+            return
+        }
+        val started = playSound(alertData)
+        if (!started) {
+            alertPlaysRemaining = 0
+            return
+        }
+        alertPlaysRemaining -= 1
+        if (alertPlaysRemaining <= 0) return
+        val repeat = object : Runnable {
+            override fun run() {
+                if (!isPlaying || alertPlaysRemaining <= 0) return
+                if (ringtone?.isPlaying == true) {
+                    alertHandler.postDelayed(this, 200)
+                    return
+                }
+                alertHandler.postDelayed({ startAlert() }, 800)
+            }
+        }
+        alertRepeat = repeat
+        alertHandler.postDelayed(repeat, 200)
     }
 
     private fun vibrationAllowed(): Boolean {
@@ -156,10 +192,10 @@ class CallkitSoundPlayerManager(private val context: Context) {
             filter == NotificationManager.INTERRUPTION_FILTER_ALARMS
     }
 
-    private fun playSound(data: Bundle?) {
-        if (!ringAudible()) {
-            Log.i(tag, "ringtone not started: silent, vibrate, zero ring volume, or DND")
-            return
+    private fun playSound(data: Bundle?): Boolean {
+        if (!notificationAudible()) {
+            Log.i(tag, "alert not started: silent, vibrate, zero notification volume, or DND")
+            return false
         }
         val sound = data?.getString(
             CallkitConstants.EXTRA_CALLKIT_RINGTONE_PATH,
@@ -167,30 +203,33 @@ class CallkitSoundPlayerManager(private val context: Context) {
         )
         val uri = sound?.let { getRingtoneUri(it) }
         if (uri == null) {
-            Log.w(tag, "ringtone resource was not resolved")
-            return
+            Log.w(tag, "alert resource was not resolved")
+            return false
         }
         try {
             ringtone = RingtoneManager.getRingtone(context, uri)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 val attribution = AudioAttributes.Builder()
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                    .setLegacyStreamType(AudioManager.STREAM_RING)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setLegacyStreamType(AudioManager.STREAM_NOTIFICATION)
                     .build()
                 ringtone?.setAudioAttributes(attribution)
             } else {
-                ringtone?.streamType = AudioManager.STREAM_RING
+                ringtone?.streamType = AudioManager.STREAM_NOTIFICATION
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                ringtone?.isLooping = true
+                ringtone?.isLooping = false
             }
             ringtone?.play()
             if (ringtone?.isPlaying != true) {
-                Log.w(tag, "ringtone play returned without playback")
+                Log.w(tag, "alert play returned without playback")
+                return false
             }
+            return true
         } catch (e: Exception) {
-            Log.w(tag, "ringtone play failed", e)
+            Log.w(tag, "alert play failed", e)
+            return false
         }
     }
 
@@ -210,11 +249,11 @@ class CallkitSoundPlayerManager(private val context: Context) {
                 return Uri.parse("android.resource://${context.packageName}/$resId")
             }
 
-            // For any other unresolved filename, return the default ringtone
-            return getDefaultRingtoneUri()
+            Log.w(tag, "named alert was not in raw resources")
+            return null
         } catch (e: Exception) {
-            // If anything fails, try to return the system default ringtone
-            return getDefaultRingtoneUri()
+            Log.w(tag, "named alert could not be resolved", e)
+            return null
         }
     }
 
