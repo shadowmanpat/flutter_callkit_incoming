@@ -7,6 +7,7 @@
 
 package com.hiennv.flutter_callkit_incoming
 
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -18,6 +19,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -26,6 +28,8 @@ import java.util.Timer
 import java.util.TimerTask
 
 class CallkitSoundPlayerManager(private val context: Context) {
+
+    private val tag = "RacfCallkitRing"
 
     private var vibrator: Vibrator? = null
     private var audioManager: AudioManager? = null
@@ -38,12 +42,14 @@ class CallkitSoundPlayerManager(private val context: Context) {
     // End Signify modification
 
     private var keepRingingForFullScreenIntent: Boolean = false
+    private var screenReceiverRegistered = false
 
     inner class ScreenOffCallkitIncomingBroadcastReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (isPlaying && !keepRingingForFullScreenIntent) {
-                stop()
-            }
+            // The full-screen incoming call stays up when the screen locks.
+            // Ringing continues until answer, decline, cancellation, timeout,
+            // or the person lowers the ring volume. A screen-off broadcast
+            // is not one of those.
         }
     }
 
@@ -52,13 +58,19 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
 
     fun play(data: Bundle) {
+        if (ringtone?.isPlaying == true) {
+            return
+        }
         this.isPlaying = true
         this.prepare()
         this.playSound(data)
         this.playVibrator()
 
-        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
-        context.registerReceiver(screenOffCallkitIncomingBroadcastReceiver, filter)
+        if (!screenReceiverRegistered) {
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            context.registerReceiver(screenOffCallkitIncomingBroadcastReceiver, filter)
+            screenReceiverRegistered = true
+        }
     }
 
     fun stop() {
@@ -68,23 +80,17 @@ class CallkitSoundPlayerManager(private val context: Context) {
         vibrator?.cancel()
         ringtone = null
         vibrator = null
-        try {
-            context.unregisterReceiver(screenOffCallkitIncomingBroadcastReceiver)
-        } catch (_: Exception) {
+        if (screenReceiverRegistered) {
+            try {
+                context.unregisterReceiver(screenOffCallkitIncomingBroadcastReceiver)
+            } catch (_: Exception) {
+            }
+            screenReceiverRegistered = false
         }
     }
 
     fun destroy() {
-        this.isPlaying = false
-
-        ringtone?.stop()
-        vibrator?.cancel()
-        ringtone = null
-        vibrator = null
-        try {
-            context.unregisterReceiver(screenOffCallkitIncomingBroadcastReceiver)
-        } catch (_: Exception) {
-        }
+        stop()
     }
 
     private fun prepare() {
@@ -101,7 +107,7 @@ class CallkitSoundPlayerManager(private val context: Context) {
             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
         audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        if (audioManager?.ringerMode == AudioManager.RINGER_MODE_SILENT) return
+        if (!vibrationAllowed()) return
 
         val pattern = longArrayOf(0L, 1000L, 1000L)
 
@@ -127,14 +133,41 @@ class CallkitSoundPlayerManager(private val context: Context) {
         }
     }
 
+    private fun ringAudible(): Boolean {
+        val manager = audioManager ?: context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager = manager
+        if (manager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return false
+        if (manager.getStreamVolume(AudioManager.STREAM_RING) <= 0) return false
+        return !alertsSilenced()
+    }
+
+    private fun vibrationAllowed(): Boolean {
+        val manager = audioManager ?: context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager = manager
+        if (manager.ringerMode == AudioManager.RINGER_MODE_SILENT) return false
+        return !alertsSilenced()
+    }
+
+    private fun alertsSilenced(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        val notifications = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val filter = notifications.currentInterruptionFilter
+        return filter == NotificationManager.INTERRUPTION_FILTER_NONE ||
+            filter == NotificationManager.INTERRUPTION_FILTER_ALARMS
+    }
+
     private fun playSound(data: Bundle?) {
+        if (!ringAudible()) {
+            Log.i(tag, "ringtone not started: silent, vibrate, zero ring volume, or DND")
+            return
+        }
         val sound = data?.getString(
             CallkitConstants.EXTRA_CALLKIT_RINGTONE_PATH,
             ""
         )
         val uri = sound?.let { getRingtoneUri(it) }
         if (uri == null) {
-            // Failed to get ringtone url, can't play sound
+            Log.w(tag, "ringtone resource was not resolved")
             return
         }
         try {
@@ -153,8 +186,11 @@ class CallkitSoundPlayerManager(private val context: Context) {
                 ringtone?.isLooping = true
             }
             ringtone?.play()
+            if (ringtone?.isPlaying != true) {
+                Log.w(tag, "ringtone play returned without playback")
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(tag, "ringtone play failed", e)
         }
     }
 

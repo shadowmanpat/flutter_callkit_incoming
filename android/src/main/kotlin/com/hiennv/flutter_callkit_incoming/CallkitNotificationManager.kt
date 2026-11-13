@@ -1020,10 +1020,13 @@ class CallkitNotificationManager(
     // Start Signify modification
     inner class VolumeKeyBroadcastReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
-                if (callkitSoundPlayerManager?.isPlaying == true) {
-                    callkitSoundPlayerManager.stop()
-                }
+            if (intent?.action != "android.media.VOLUME_CHANGED_ACTION") return
+            if (callkitSoundPlayerManager?.isPlaying != true) return
+            val stream = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
+            val value = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
+            val previous = intent.getIntExtra("android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1)
+            if (stream == AudioManager.STREAM_RING && value >= 0 && previous >= 0 && value < previous) {
+                callkitSoundPlayerManager.stop()
             }
         }
     }
@@ -1035,11 +1038,13 @@ class CallkitNotificationManager(
         if (incomingChannelEnabled()) {
             callkitSoundPlayerManager?.play(data)
             // Start Signify modification
-            volumeKeyReceiver = VolumeKeyBroadcastReceiver()
-            context.registerReceiver(
-                volumeKeyReceiver,
-                IntentFilter("android.media.VOLUME_CHANGED_ACTION")
-            )
+            if (volumeKeyReceiver == null) {
+                volumeKeyReceiver = VolumeKeyBroadcastReceiver()
+                context.registerReceiver(
+                    volumeKeyReceiver,
+                    IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+                )
+            }
             // End Signify modification
         }
         callkitNotification?.let {

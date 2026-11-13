@@ -85,6 +85,7 @@ class CallkitIncomingActivity : Activity() {
 
     private lateinit var tvNameCaller: TextView
     private lateinit var tvNumber: TextView
+    private lateinit var tvRate: TextView
     private lateinit var ivLogo: ImageView
     private lateinit var ivAvatar: CircleImageView
 
@@ -195,12 +196,17 @@ class CallkitIncomingActivity : Activity() {
         val textColor = data?.getString(CallkitConstants.EXTRA_CALLKIT_TEXT_COLOR, "#ffffff")
         val isShowCallID = data?.getBoolean(CallkitConstants.EXTRA_CALLKIT_IS_SHOW_CALL_ID, false)
         tvNameCaller.text = data?.getString(CallkitConstants.EXTRA_CALLKIT_NAME_CALLER, "")
-        tvNumber.text = data?.getString(CallkitConstants.EXTRA_CALLKIT_HANDLE, "")
-        tvNumber.visibility = if (isShowCallID == true) View.VISIBLE else View.INVISIBLE
+        val handle = data?.getString(CallkitConstants.EXTRA_CALLKIT_HANDLE, "") ?: ""
+        val lines = handle.split("\n", limit = 2)
+        tvNumber.text = lines.getOrElse(0) { "" }
+        tvRate.text = if (lines.size > 1) lines[1] else ""
+        tvNumber.visibility = if (isShowCallID == true && tvNumber.text.isNotEmpty()) View.VISIBLE else View.GONE
+        tvRate.visibility = if (isShowCallID == true && tvRate.text.isNotEmpty()) View.VISIBLE else View.GONE
 
         try {
             tvNameCaller.setTextColor(Color.parseColor(textColor))
             tvNumber.setTextColor(Color.parseColor(textColor))
+            tvRate.setTextColor(Color.parseColor(textColor))
         } catch (error: Exception) {
         }
 
@@ -217,6 +223,9 @@ class CallkitIncomingActivity : Activity() {
         }
 
         var avatarUrl = data?.getString(CallkitConstants.EXTRA_CALLKIT_AVATAR, "")
+        if (avatarUrl.isNullOrEmpty()) {
+            ivAvatar.visibility = View.VISIBLE
+        }
         if (!avatarUrl.isNullOrEmpty()) {
             ivAvatar.visibility = View.VISIBLE
             if (!avatarUrl.startsWith("http://", true) && !avatarUrl.startsWith("https://", true)) {
@@ -242,6 +251,8 @@ class CallkitIncomingActivity : Activity() {
         val textDecline = data?.getString(CallkitConstants.EXTRA_CALLKIT_TEXT_DECLINE, "")
         tvDecline.text =
             if (TextUtils.isEmpty(textDecline)) getString(R.string.text_decline) else textDecline
+        ivAcceptCall.contentDescription = tvAccept.text
+        ivDeclineCall.contentDescription = tvDecline.text
 
         val acceptCallColor =
             data?.getString(CallkitConstants.EXTRA_CALLKIT_ACCEPT_COLOR, "#4CAF50")
@@ -308,6 +319,7 @@ class CallkitIncomingActivity : Activity() {
 
         tvNameCaller = findViewById(R.id.tvNameCaller)
         tvNumber = findViewById(R.id.tvNumber)
+        tvRate = findViewById(R.id.tvRate)
         ivLogo = findViewById(R.id.ivLogo)
         ivAvatar = findViewById(R.id.ivAvatar)
 
